@@ -23,6 +23,10 @@ For a public `images` bucket, the app can use public URLs instead by setting `VI
 
 Without these variables, the storefront runs in a clearly labeled local preview using the existing sample products. The `/admin` page will explain that Supabase setup is required. When configured, public visitors see only rows with `is_published = true`; database errors do not fall back to sample listings.
 
+## Vercel deployment
+
+The repository includes a Vercel rewrite that serves the Vite app for direct routes such as `/admin`. Deploy or redeploy the project after this configuration is added; Vercel must build the latest commit for the route to work.
+
 ## Supabase setup
 
 1. Review and run [`supabase/migrations/20261023000100_storefront_access_policies.sql`](./supabase/migrations/20261023000100_storefront_access_policies.sql) in the Supabase SQL Editor. It reuses the existing `products`, `admin_users`, and `is_store_admin()` objects. It does not recreate tables or change product data.
