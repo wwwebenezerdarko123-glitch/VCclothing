@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
@@ -9,11 +8,19 @@ import {
   Menu,
   Minus,
   Plus,
+  Ruler,
   ShoppingBag,
   Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
+import AdminDashboard from './AdminDashboard'
+import {
+  createProductImageUrl,
+  fetchPublishedProducts,
+  type StoreProduct,
+} from './lib/products'
+import { supabase } from './lib/supabase'
 import './App.css'
 
 type Product = {
@@ -25,6 +32,9 @@ type Product = {
   description: string
   image: string
   imageBack?: string
+  availableSizes?: string[]
+  stockQuantity?: number
+  imagePaths?: string[]
 }
 
 type WelcomeNote = {
@@ -122,7 +132,7 @@ const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GH', {
     style: 'currency',
     currency: 'GHS',
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(price)
 
 function readStored<T,>(key: string, fallback: T): T {
@@ -156,8 +166,25 @@ function readProducts() {
 }
 
 function getProductImageUrl(product: Product) {
-  if (product.image.startsWith('data:')) return null
+  if (!product.image || product.image.startsWith('data:')) return null
   return new URL(product.image, window.location.origin).href
+}
+
+async function mapStoreProduct(product: StoreProduct): Promise<Product> {
+  const images = await Promise.all(product.image_urls.map(createProductImageUrl))
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    gender: 'Unisex',
+    price: product.price,
+    description: product.description,
+    image: images[0] ?? '',
+    imageBack: images[1],
+    imagePaths: product.image_urls,
+    availableSizes: product.available_sizes,
+    stockQuantity: product.stock_quantity,
+  }
 }
 
 function Brand({ light = false }: { light?: boolean }) {
@@ -307,14 +334,26 @@ function TypewriterNote({ note }: { note: string }) {
   return <p className="hero-typed">{typedNote}<span className="typing-cursor" aria-hidden="true" /></p>
 }
 
-function ProductCard({ product, index, onAdd }: { product: Product; index: number; onAdd: (product: Product) => void }) {
+function ProductCard({
+  product,
+  index,
+  onAdd,
+  onSizingHelp,
+}: {
+  product: Product
+  index: number
+  onAdd: (product: Product) => void
+  onSizingHelp: (product: Product) => void
+}) {
   const [showAlternate, setShowAlternate] = useState(false)
   const hasAlternate = Boolean(product.imageBack)
 
   return (
     <article className="product-card" style={{ animationDelay: `${index * 100}ms` }}>
       <div className={`product-image-wrap${showAlternate ? ' show-alternate' : ''}`}>
-        <img className="product-image-front" src={product.image} alt={`${product.name}, front view`} loading="lazy" />
+        {product.image
+          ? <img className="product-image-front" src={product.image} alt={`${product.name}, front view`} loading="lazy" />
+          : <span className="product-image-placeholder">A new piece, made for you</span>}
         {product.imageBack && (
           <img className="product-image-back" src={product.imageBack} alt={`${product.name}, back or alternate view`} loading="lazy" />
         )}
@@ -332,21 +371,73 @@ function ProductCard({ product, index, onAdd }: { product: Product; index: numbe
         <button className="heart-button" aria-label={`Save ${product.name}`} onClick={(event) => event.currentTarget.classList.toggle('is-loved')}>
           <Heart size={18} strokeWidth={1.5} />
         </button>
-        <button className="quick-add" onClick={() => onAdd(product)}>Add to your bag <Plus size={16} /></button>
+        <button className="quick-add" onClick={() => onAdd(product)} disabled={product.stockQuantity === 0}>
+          {product.stockQuantity === 0 ? 'Currently unavailable' : 'Add to your bag'}
+          {product.stockQuantity !== 0 && <Plus size={16} />}
+        </button>
       </div>
       <div className="product-info">
         <div><h3>{product.name}</h3><span>{product.gender} · {product.category}</span></div>
         <strong>{formatPrice(product.price)}</strong>
       </div>
       <p className="product-description">{product.description}</p>
+      {product.availableSizes && product.availableSizes.length > 0 && (
+        <p className="product-sizes">Available sizes: {product.availableSizes.join(', ')}</p>
+      )}
+      <button className="sizing-help-link" type="button" onClick={() => onSizingHelp(product)}>
+        <Ruler size={13} /> Need help with sizing?
+      </button>
     </article>
   )
 }
 
-function Storefront() {
-  const [products] = useState<Product[]>(() =>
-    readProducts(),
+function SizingGuide({ product, onClose }: { product: Product; onClose: () => void }) {
+  const message = encodeURIComponent(
+    `Hello VC Clothing, I would like sizing help for ${product.name}. Please help me choose the right fit.`,
   )
+
+  return (
+    <div className="sizing-backdrop" onClick={onClose}>
+      <section
+        className="sizing-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sizing-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button className="icon-button sizing-dismiss" onClick={onClose} aria-label="Close sizing guide">
+          <X size={19} />
+        </button>
+        <span className="eyebrow"><Ruler size={13} /> A LITTLE HELP WITH THE FIT</span>
+        <h2 id="sizing-title">Your fit, <em>just right.</em></h2>
+        <p className="sizing-product">Looking at: <strong>{product.name}</strong></p>
+        <p className="sizing-intro">For the best fit, use a soft tape measure and keep it comfortably close—not tight.</p>
+        <ol className="sizing-steps">
+          <li><strong>Chest</strong><span>Measure around the fullest part of your chest, keeping the tape level.</span></li>
+          <li><strong>Waist</strong><span>Measure around your natural waist, where your body bends.</span></li>
+          <li><strong>Hips</strong><span>Measure around the fullest part of your hips while standing naturally.</span></li>
+          <li><strong>Length</strong><span>Tell us how you would like the garment to sit, and we’ll help confirm the length.</span></li>
+        </ol>
+        <p className="sizing-note">Between measurements or prefer a more personal fit? The VC studio can help you choose.</p>
+        <a
+          className="button button-whatsapp sizing-contact"
+          href={`https://wa.me/${ownerWhatsAppInternational}?text=${message}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Ask the VC studio on WhatsApp <ArrowRight size={16} />
+        </a>
+      </section>
+    </div>
+  )
+}
+
+function Storefront() {
+  const [products, setProducts] = useState<Product[]>(() => (supabase ? [] : readProducts()))
+  const [catalogueState, setCatalogueState] = useState<'loading' | 'ready' | 'error' | 'demo'>(
+    () => (supabase ? 'loading' : 'demo'),
+  )
+  const [catalogueError, setCatalogueError] = useState('')
   const [currentYear] = useState(() => new Date().getFullYear())
   const [slideIndex, setSlideIndex] = useState(0)
   const [filter, setFilter] = useState('All pieces')
@@ -362,12 +453,50 @@ function Storefront() {
     () => !localStorage.getItem(welcomeStorageKey),
   )
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [sizingProduct, setSizingProduct] = useState<Product | null>(null)
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       setSlideIndex((current) => (current + 1) % heroSlides.length)
     }, 7000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const client = supabase
+    if (!client) return
+    let active = true
+
+    async function refreshCatalogue() {
+      try {
+        const rows = await fetchPublishedProducts()
+        if (!active) return
+        setProducts(await Promise.all(rows.map(mapStoreProduct)))
+        setCatalogueState('ready')
+        setCatalogueError('')
+      } catch (error) {
+        console.error('Could not load the published product catalogue.', error)
+        if (!active) return
+        setProducts([])
+        setCatalogueState('error')
+        setCatalogueError('We could not load the collection. Please try again in a little while.')
+      }
+    }
+
+    void refreshCatalogue()
+    const channel = client
+      .channel('public-product-catalogue')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        void refreshCatalogue()
+      })
+      .subscribe()
+    const refreshInterval = window.setInterval(() => void refreshCatalogue(), 60_000)
+
+    return () => {
+      active = false
+      window.clearInterval(refreshInterval)
+      void client.removeChannel(channel)
+    }
   }, [])
 
   const categories = useMemo(
@@ -521,6 +650,18 @@ function Storefront() {
             </div>
             <p>Considered details. Beautiful fabrics.<br />A little more you, in every stitch.</p>
           </div>
+          {catalogueState === 'demo' && (
+            <p className="catalogue-notice" role="status">
+              Preview mode: these existing sample listings are stored in this browser, not in Supabase.
+              Add your Supabase settings to load the published store catalogue.
+            </p>
+          )}
+          {catalogueState === 'loading' && (
+            <p className="catalogue-notice" role="status">Gathering the latest pieces from the studio…</p>
+          )}
+          {catalogueState === 'error' && (
+            <p className="catalogue-notice catalogue-error" role="alert">{catalogueError}</p>
+          )}
             <div className="collection-toolbar">
               <div className="collection-filters">
                 <div className="gender-tabs" role="group" aria-label="Filter by gender">
@@ -543,15 +684,21 @@ function Storefront() {
           {filteredProducts.length > 0 ? (
             <div className="product-grid">
               {filteredProducts.map((product, index) => (
-                <ProductCard key={product.id} product={product} index={index} onAdd={addToBag} />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  index={index}
+                  onAdd={addToBag}
+                  onSizingHelp={setSizingProduct}
+                />
               ))}
             </div>
-          ) : (
+          ) : catalogueState === 'ready' || catalogueState === 'demo' ? (
             <div className="empty-results">
-              <p>No pieces found just yet. Try a different search or category.</p>
+              <p>{products.length ? 'No pieces found just yet. Try a different search or category.' : 'The collection is getting ready. Please check back soon.'}</p>
               <button className="text-link" onClick={() => { setSearch(''); setFilter('All pieces'); setCategoryFilter('All categories') }}>See all pieces <ArrowRight size={15} /></button>
             </div>
-          )}
+          ) : null}
           <div className="collection-bottom"><span>MADE SLOWLY. LOVED FOR A LONG TIME.</span><span>{String(filteredProducts.length).padStart(2, '0')} PIECES</span></div>
         </section>
 
@@ -592,6 +739,7 @@ function Storefront() {
           </div>
           <div className="footer-links"><span>EXPLORE</span><a href="#collection">Shop the collection</a><a href="#story">Our story</a><a href="#craft">How we make it</a></div>
           <div className="footer-links"><span>LET'S TALK</span><a href={`https://wa.me/${ownerWhatsAppInternational}`} target="_blank" rel="noreferrer">WhatsApp the studio</a><a href={`mailto:${ownerEmail}`}>Send us an email</a></div>
+          <div className="footer-links"><span>FIND US</span><a href="https://www.tiktok.com/@VC-ClothingGh" target="_blank" rel="noreferrer">TikTok · @VC-ClothingGh <ArrowUpRight size={12} /></a><a href="https://www.facebook.com/search/top?q=illesanmi%20victor%20holad" target="_blank" rel="noreferrer">Facebook · illesanmi victor Holad <ArrowUpRight size={12} /></a></div>
           <div className="footer-note"><span>MADE WITH HEART, IN ACCRA <span>✳</span></span><p>For the moments you want<br />to remember forever.</p></div>
         </div>
         <div className="footer-bottom"><span>© {currentYear} VC CLOTHING. MADE WITH CARE.</span><a href="/admin">STUDIO ACCESS <ArrowUpRight size={12} /></a><span>GHANA <span>·</span> EVERYWHERE</span></div>
@@ -607,6 +755,9 @@ function Storefront() {
                   <article className="cart-item" key={product.id}>
                     <img src={product.image} alt="" />
                     <div className="cart-item-detail"><h3>{product.name}</h3><span>{formatPrice(product.price)}</span>
+                      <button className="sizing-help-link cart-sizing-link" type="button" onClick={() => setSizingProduct(product)}>
+                        <Ruler size={12} /> Need sizing help?
+                      </button>
                       <div className="quantity-control">
                         <button onClick={() => updateQuantity(product.id, -1)} aria-label={`Remove one ${product.name}`}><Minus size={13} /></button>
                         <span>{cart[product.id]}</span>
@@ -639,7 +790,12 @@ function Storefront() {
                       }
                     }}>Prefer email? <span>Send your order details</span> <ArrowUpRight size={13} /></a>
                   </form>
-                  <small className="order-disclaimer">Your details are included in a draft for you to review and send. Locally uploaded demo images need online image hosting before the owner can view them.</small>
+                  <small className="order-disclaimer">
+                    Your details are included in a draft for you to review and send.
+                    {catalogueState === 'demo'
+                      ? ' This preview uses the shop’s existing local sample images.'
+                      : ' Product photos are included as temporary Supabase image links.'}
+                  </small>
                 </div>
               </>
             ) : (
@@ -650,186 +806,7 @@ function Storefront() {
       )}
 
       {welcomeOpen && <WelcomeOverlay onClose={() => setWelcomeOpen(false)} />}
-    </div>
-  )
-}
-
-function AdminDashboard() {
-  const [products, setProducts] = useState<Product[]>(() =>
-    readProducts(),
-  )
-  const [notes, setNotes] = useState<WelcomeNote[]>(() =>
-    readStored(noteStorageKey, []),
-  )
-  const [name, setName] = useState('')
-  const [category, setCategory] = useState('')
-  const [gender, setGender] = useState<Product['gender']>('Men')
-  const [price, setPrice] = useState('')
-  const [description, setDescription] = useState('')
-  const [image, setImage] = useState('')
-  const [imageBack, setImageBack] = useState('')
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
-
-  function handleImage(event: ChangeEvent<HTMLInputElement>, view: 'front' | 'back') {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setError('Please choose an image file.')
-      return
-    }
-    if (file.size > 4 * 1024 * 1024) {
-      setError('Please choose an image smaller than 4 MB for this local demo.')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onerror = () => setError('We could not read that image. Please try another file.')
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        if (view === 'front') setImage(reader.result)
-        else setImageBack(reader.result)
-        setError('')
-      }
-    }
-    reader.readAsDataURL(file)
-  }
-
-  function addProduct(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!image || !imageBack) {
-      setError('Add both the front and back or alternate photos before saving.')
-      return
-    }
-    const newProduct: Product = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      category: category.trim(),
-      gender,
-      price: Number(price),
-      description: description.trim(),
-      image,
-      imageBack,
-    }
-    const nextProducts = [newProduct, ...products]
-    try {
-      saveStored(productStorageKey, nextProducts)
-      setProducts(nextProducts)
-      setName('')
-      setCategory('')
-      setGender('Men')
-      setPrice('')
-      setDescription('')
-      setImage('')
-      setImageBack('')
-      setError('')
-      setMessage('Your new piece is in the collection.')
-    } catch (storageError) {
-      console.error('Could not save the product.', storageError)
-      setError('This image may be too large for browser storage. Try a smaller image.')
-    }
-  }
-
-  function removeProduct(product: Product) {
-    const nextProducts = products.filter((item) => item.id !== product.id)
-    try {
-      saveStored(productStorageKey, nextProducts)
-      setProducts(nextProducts)
-      setMessage(`${product.name} was removed from the collection.`)
-      setError('')
-    } catch (storageError) {
-      console.error('Could not remove the product.', storageError)
-      setError('The product could not be removed. Please try again.')
-    }
-  }
-
-  function removeNote(note: WelcomeNote) {
-    const nextNotes = notes.filter((item) => item.id !== note.id)
-    try {
-      saveStored(noteStorageKey, nextNotes)
-      setNotes(nextNotes)
-    } catch (storageError) {
-      console.error('Could not remove the welcome note.', storageError)
-      setError('The welcome note could not be removed. Please try again.')
-    }
-  }
-
-  return (
-    <div className="admin-page">
-      <header className="admin-header"><a className="back-link" href="/"><ArrowLeft size={16} /> Back to the shop</a><Brand /><span className="demo-status"><span className="live-dot" /> LOCAL DEMO</span></header>
-      <main className="admin-main">
-        <div className="admin-intro"><div><span className="eyebrow">YOUR LITTLE CORNER OF VC</span><h1>The studio<br /><em>edit.</em></h1><p>Keep good things moving. Add a piece, check in on your collection, and see who's stopping by.</p></div><div className="admin-stat"><span>PIECES IN THE COLLECTION</span><strong>{String(products.length).padStart(2, '0')}</strong></div></div>
-        <div className="demo-warning"><Sparkles size={17} /><p><strong>Local demo, just for now.</strong> Starter product names, descriptions and prices are examples. Your products and welcome notes are saved only in this browser; there is no private admin sign-in, shared storage or real notification delivery in this frontend-only demo.</p></div>
-        {message && <div className="admin-success" role="status"><Check size={16} /> {message}<button className="icon-button" onClick={() => setMessage('')} aria-label="Dismiss message"><X size={15} /></button></div>}
-        {error && <p className="admin-error" role="alert">{error}</p>}
-        <div className="admin-columns">
-          <section className="admin-panel add-panel">
-            <div className="panel-title"><span className="eyebrow">GIVE IT A PLACE</span><h2>Add a new piece</h2><p>The details that make someone fall in love.</p></div>
-            <form onSubmit={addProduct} className="product-form">
-              <div className="product-image-uploads">
-                <label className="image-upload">
-                  {image ? <img src={image} alt="Preview of the front of the new piece" /> : <span className="upload-prompt"><Plus size={22} /><strong>Front photo</strong><small>Up to 4 MB</small></span>}
-                  <input type="file" accept="image/*" aria-label="Front photo" onChange={(event) => handleImage(event, 'front')} />
-                  {image && <span className="image-view-label">FRONT VIEW</span>}
-                </label>
-                <label className="image-upload">
-                  {imageBack ? <img src={imageBack} alt="Preview of the back or alternate view of the new piece" /> : <span className="upload-prompt"><Plus size={22} /><strong>Back or side photo</strong><small>Up to 4 MB</small></span>}
-                  <input type="file" accept="image/*" aria-label="Back or side photo" onChange={(event) => handleImage(event, 'back')} />
-                  {imageBack && <span className="image-view-label">BACK / SIDE VIEW</span>}
-                </label>
-              </div>
-              <label>PIECE NAME<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. The Sunday Kaftan" maxLength={80} /></label>
-              <div className="form-row product-meta-row">
-                <label>FOR
-                  <select required value={gender} onChange={(event) => {
-                    const value = event.target.value
-                    if (value === 'Men' || value === 'Women' || value === 'Unisex') setGender(value)
-                  }}>
-                    <option>Men</option>
-                    <option>Women</option>
-                    <option>Unisex</option>
-                  </select>
-                </label>
-                <label>CATEGORY<input required value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Made to measure" maxLength={50} /></label>
-                <label>PRICE (GHS)<input required type="number" min="1" step="1" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="850" /></label>
-              </div>
-              <label>THE STORY BEHIND IT<textarea required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Tell us what makes this piece special…" rows={4} maxLength={350} /></label>
-              <button className="button button-dark" type="submit">Add to the collection <ArrowRight size={16} /></button>
-            </form>
-          </section>
-
-          <section className="admin-panel inventory-panel">
-            <div className="panel-title"><span className="eyebrow">ON THE RAIL</span><h2>Your collection</h2><p>{products.length} thoughtfully made pieces</p></div>
-            <div className="inventory-list">
-              {products.map((product) => (
-                <article className="inventory-item" key={product.id}>
-                  <div className="inventory-thumbnails">
-                    <img src={product.image} alt="" />
-                    {product.imageBack && <img src={product.imageBack} alt="" />}
-                  </div>
-                  <div><strong>{product.name}</strong><span>{product.gender} · {product.category} · {formatPrice(product.price)}</span></div>
-                  <button className="remove-item" onClick={() => removeProduct(product)} aria-label={`Remove ${product.name}`}><Trash2 size={16} /></button>
-                </article>
-              ))}
-              {!products.length && <p className="panel-empty">Your rail is ready for its first piece.</p>}
-            </div>
-          </section>
-        </div>
-
-        <section className="admin-panel notes-panel">
-          <div className="panel-title"><span className="eyebrow">A LITTLE HELLO FROM AFAR</span><h2>Visitor hellos <span className="note-count">{notes.length}</span></h2><p>Places visitors shared at the welcome screen. These are only stored on this device.</p></div>
-          {notes.length ? (
-            <div className="notes-list">{notes.map((note) => (
-              <article className="visitor-note" key={note.id}>
-                  <span className="visitor-pin">✳</span><div><strong>{note.place}</strong><span>{note.date}</span></div>
-                <button className="remove-item" onClick={() => removeNote(note)} aria-label={`Remove note from ${note.place}`}><Trash2 size={16} /></button>
-              </article>
-            ))}</div>
-          ) : <div className="panel-empty">Your first hello is on its way. When someone shares where they're visiting from, it'll appear here in this browser.</div>}
-        </section>
-        <a className="admin-home-link" href="/">← Back to VC Clothing</a>
-      </main>
-      <footer className="admin-footer"><Brand light /><span>MADE WITH CARE IN ACCRA <span>✳</span></span></footer>
+      {sizingProduct && <SizingGuide product={sizingProduct} onClose={() => setSizingProduct(null)} />}
     </div>
   )
 }

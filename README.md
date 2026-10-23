@@ -1,28 +1,51 @@
 # VC Clothing
 
-A responsive storefront for VC Clothing, built with React, TypeScript and Vite.
+The existing responsive VC Clothing storefront, built with React, TypeScript, and Vite. The original visual design, hero, animations, sizing guide, search/filter controls, cart, WhatsApp order enquiry, welcome overlay, and social links remain in place.
 
 ## Run locally
 
 ```bash
 npm install
+copy .env.example .env.local
 npm run dev
 ```
 
-Run `npm run build` to create a production build in `dist/`.
+Add the Supabase project URL and **publishable** key to `.env.local`:
 
-## Storefront and studio demo
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
 
-- The storefront uses the supplied logo, hero photography, atelier video and product images in `public/`.
-- Use the Studio Access link in the footer, or visit `/admin`, to open the product and visitor-hello demo.
-- Products, uploaded product images and welcome-screen answers are stored in the current browser's local storage. They are not sent to an owner, shared between browsers, or protected by admin authentication.
-- Each studio product accepts a front and a back/side photo. Customers can hover to reveal the alternate view on desktop or tap the front/back control on touch screens. Older starter listings include sample alternate photos; replace these with the actual garment views.
-- Products can be tagged for Men, Women or Unisex, and customers can filter the collection by gender and category.
-- Each product accepts a front and a back/side photo. Customers can hover to reveal the alternate view on desktop or tap the front/back control on touch screens. Older starter listings include sample alternate photos; replace these with the actual garment views.
-- The welcome screen includes a 20% discount request. Choosing the offer opens a prefilled email draft addressed to the owner; the visitor must review and send it. Automatic email delivery and discount-code issuance require a backend/email service.
-- The order enquiry form opens WhatsApp (`0531459738`) or an email draft (`Ilesanmivictor26@gmail.com`) with the buyer's supplied contact details and selected item details. The buyer reviews and sends the message; no order, payment or notification is transmitted automatically.
-- Starter product image URLs are included in the enquiry. Images uploaded in the local demo are stored only in the studio browser, so they need online image hosting before the owner can view them from a customer's message.
-- The welcome screen includes a 20% discount request. Choosing the offer opens a prefilled email draft addressed to the owner; the visitor must review and send it. Automatic email delivery and discount-code issuance require a backend/email service.
-- The starter products and prices are examples. Update them in the Studio Access demo before presenting the storefront as a real shop.
+These Vite variables are included in the browser bundle. Only the project URL and publishable key belong here; never use a secret or service-role key in this frontend. `.env.local` is ignored by Git.
 
-This frontend-only demo does not process payments or provide secure, shared product management or private visitor notifications. Those publishing features require a backend with authenticated admin access, persistent storage and hosted product images.
+For a public `images` bucket, the app can use public URLs instead by setting `VITE_SUPABASE_IMAGES_PUBLIC=true`. This optional setting is public configuration, not a secret.
+
+Without these variables, the storefront runs in a clearly labeled local preview using the existing sample products. The `/admin` page will explain that Supabase setup is required. When configured, public visitors see only rows with `is_published = true`; database errors do not fall back to sample listings.
+
+## Supabase setup
+
+1. Review and run [`supabase/migrations/20261023000100_storefront_access_policies.sql`](./supabase/migrations/20261023000100_storefront_access_policies.sql) in the Supabase SQL Editor. It reuses the existing `products`, `admin_users`, and `is_store_admin()` objects. It does not recreate tables or change product data.
+2. Confirm `is_store_admin()` returns `true` only for authenticated users whose `auth.uid()` is in `public.admin_users`. It must safely read the protected allowlist (typically `SECURITY DEFINER` with a fixed `search_path`) and must not expose allowlist rows. Review its implementation before relying on it.
+3. Create the administrator account in Supabase Authentication. Then, after confirming the new account's Auth user ID, add only that ID to the existing `admin_users` allowlist using the schema's actual constraints. The website has no public registration flow and never grants admin access automatically.
+4. Confirm the Storage bucket is named exactly `images`. The safer default is a **private** bucket: the migration allows visitors to request signed image URLs only for photos belonging to published products. If the bucket is already public, set `VITE_SUPABASE_IMAGES_PUBLIC=true` to use public URLs; public buckets make every object in that bucket readable to anyone, including unpublished photos. In either case, do not make uploads, updates, or deletes public.
+5. In production hosting settings, add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` values. Redeploy after changing them.
+
+The SQL migration adds product and Storage RLS policies, restrictive guard policies that cap older permissive policies, removes direct client access to `admin_users`, and adds product changes to Realtime when that publication exists. Review the migration and current project policies before running it. Do not disable RLS.
+
+## Manage products
+
+Visit `/admin` and sign in with the administrator's Supabase Auth email and password. The application verifies access through `is_store_admin()` before showing the dashboard. The session is managed by Supabase Auth; the website does not save the password.
+
+The dashboard supports creating and editing products, deleting with confirmation, publishing/unpublishing, stock and size updates, multiple photo previews, primary-image selection, and Storage uploads to `images`. Photo uploads are limited to JPG, PNG, or WebP and 10 MB each. Product records store Storage paths in `image_urls`, not base64 image data. Private-bucket image links are signed and expire after one hour. Public product changes refresh through Realtime and a periodic refresh.
+
+The catalog uses the existing database fields: `name`, `description`, `price`, `category`, `available_sizes`, `stock_quantity`, `image_urls`, `is_published`, and timestamps. No additional columns are required. The existing storefront gender filter remains; products from this schema are treated as unisex because the table has no gender field.
+
+The welcome-screen visitor hellos remain in the visitor's local browser and are not collected in Supabase. WhatsApp/email order enquiries remain customer-composed messages; this website does not process payments.
+
+## Checks
+
+```bash
+npm run lint
+npm run build
+```
