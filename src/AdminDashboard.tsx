@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   ArrowLeft,
@@ -31,7 +31,7 @@ const emptyForm = {
   category: '',
   sizes: '',
   stock: '0',
-  published: false,
+  published: true,
 }
 
 function StudioBrand({ light = false }: { light?: boolean }) {
@@ -110,6 +110,7 @@ function readWelcomeNotes(): WelcomeNote[] {
 }
 
 function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const feedbackRef = useRef<HTMLDivElement>(null)
   const [products, setProducts] = useState<StoreProduct[]>([])
   const [notes, setNotes] = useState(readWelcomeNotes)
   const [loading, setLoading] = useState(true)
@@ -125,6 +126,11 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
 
   const imagePreviews = useMemo(() => newImages.map((file) => URL.createObjectURL(file)), [newImages])
   useEffect(() => () => imagePreviews.forEach((url) => URL.revokeObjectURL(url)), [imagePreviews])
+  useEffect(() => {
+    if (message || error) {
+      feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [error, message])
 
   function existingImageUrl(path: string) {
     for (const product of products) {
@@ -265,7 +271,9 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
       }
       setMessage(cleanupWarning
         ? 'Product saved, but an old photo could not be removed from Storage.'
-        : editingId ? 'Your product has been updated.' : 'Your new piece has been added.')
+        : form.published
+          ? editingId ? 'Your product has been updated and is live in the store.' : 'Your new piece is live in the store.'
+          : editingId ? 'Your product has been saved as a draft and is hidden from the store.' : 'Your new piece has been saved as a draft and is hidden from the store.')
       resetForm()
       await refreshProducts()
     } catch (saveError) {
@@ -327,8 +335,10 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
           <div className="admin-stat"><span>PIECES IN THE COLLECTION</span><strong>{String(products.length).padStart(2, '0')}</strong></div>
         </div>
         <div className="demo-warning"><Check size={17} /><p><strong>Signed in as {session.user.email}.</strong> Product changes are stored in Supabase. Uploads and product changes are protected by your database and Storage policies.</p></div>
-        {message && <div className="admin-success" role="status"><Check size={16} /> {message}<button className="icon-button" onClick={() => setMessage('')} aria-label="Dismiss message"><X size={15} /></button></div>}
-        {error && <p className="admin-error" role="alert">{error}</p>}
+        <div ref={feedbackRef}>
+          {message && <div className="admin-success" role="status"><Check size={16} /> {message}<button className="icon-button" onClick={() => setMessage('')} aria-label="Dismiss message"><X size={15} /></button></div>}
+          {error && <p className="admin-error" role="alert">{error}</p>}
+        </div>
         <div className="admin-columns">
           <section className="admin-panel add-panel" id="studio-product-form">
             <div className="panel-title"><span className="eyebrow">{editingId ? 'REFINE THE DETAILS' : 'GIVE IT A PLACE'}</span><h2>{editingId ? 'Edit this piece' : 'Add a new piece'}</h2><p>Product details, photos, availability, and stock.</p></div>
