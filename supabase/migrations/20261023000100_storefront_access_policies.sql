@@ -1,16 +1,51 @@
 -- Review and run this migration in the Supabase SQL Editor.
--- It reuses public.products, public.admin_users, and public.is_store_admin().
+-- It reuses public.products and public.admin_users, and installs public.is_store_admin().
 -- It does not create tables, change product data, or change the images bucket visibility.
 
 alter table public.products enable row level security;
 alter table public.admin_users enable row level security;
 
+-- Existing products remain visible in all catalogue filters until categorized.
+alter table public.products
+  add column if not exists gender text not null default 'Unisex';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.products'::regclass
+      and conname = 'products_gender_check'
+  ) then
+    alter table public.products
+      add constraint products_gender_check
+      check (gender in ('Men', 'Women', 'Unisex'));
+  end if;
+end
+$$;
+
+-- Keep the allowlist private while allowing RLS policies to check the caller.
+create or replace function public.is_store_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.admin_users
+    where user_id = (select auth.uid())
+  );
+$$;
+
+revoke all on function public.is_store_admin() from public;
+grant execute on function public.is_store_admin() to anon, authenticated;
+
 revoke all on table public.admin_users from public, anon, authenticated;
 revoke all on table public.products from public, anon, authenticated;
 grant select on table public.products to anon, authenticated;
 grant insert, update, delete on table public.products to authenticated;
-revoke execute on function public.is_store_admin() from public;
-grant execute on function public.is_store_admin() to anon, authenticated;
 
 drop policy if exists vc_products_public_read_published on public.products;
 drop policy if exists vc_products_admin_manage on public.products;
@@ -52,8 +87,7 @@ create policy vc_products_delete_limit
   to authenticated
   using (public.is_store_admin());
 
--- The client never reads admin_users directly. Authorization is checked through
--- is_store_admin(), which must be a safe, caller-aware function in this project.
+-- The client never reads admin_users directly; authorization checks use the protected function.
 
 drop policy if exists vc_images_public_read on storage.objects;
 drop policy if exists vc_images_admin_upload on storage.objects;

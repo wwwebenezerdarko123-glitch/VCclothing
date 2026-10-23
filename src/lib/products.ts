@@ -6,6 +6,7 @@ export type StoreProduct = {
   description: string
   price: number
   category: string
+  gender: 'Men' | 'Women' | 'Unisex'
   available_sizes: string[]
   stock_quantity: number
   image_urls: string[]
@@ -20,6 +21,7 @@ export type ProductInput = {
   description: string
   price: number
   category: string
+  gender: 'Men' | 'Women' | 'Unisex'
   available_sizes: string[]
   stock_quantity: number
   image_urls: string[]
@@ -49,6 +51,7 @@ function normalizeProduct(row: Record<string, unknown>): StoreProduct {
     description: String(row.description ?? ''),
     price: Number(row.price),
     category: String(row.category ?? ''),
+    gender: row.gender === 'Men' || row.gender === 'Women' || row.gender === 'Unisex' ? row.gender : 'Unisex',
     available_sizes: Array.isArray(row.available_sizes) ? row.available_sizes.map(String) : [],
     stock_quantity: Number(row.stock_quantity ?? 0),
     image_urls: Array.isArray(row.image_urls) ? row.image_urls.map(String) : [],

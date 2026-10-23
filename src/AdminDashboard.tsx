@@ -29,6 +29,7 @@ const emptyForm = {
   description: '',
   price: '',
   category: '',
+  gender: '',
   sizes: '',
   stock: '0',
   published: true,
@@ -187,6 +188,7 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
       description: product.description,
       price: String(product.price),
       category: product.category,
+      gender: product.gender,
       sizes: product.available_sizes.join(', '),
       stock: String(product.stock_quantity),
       published: product.is_published,
@@ -220,8 +222,8 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
     const price = Number(form.price)
     const stock = Number(form.stock)
     const sizes = [...new Set(form.sizes.split(',').map((size) => size.trim()).filter(Boolean))]
-    if (!form.name.trim() || !form.description.trim() || !form.category.trim() || !Number.isFinite(price) || price <= 0) {
-      setError('Enter a name, description, category, and a price greater than zero.')
+    if (!form.name.trim() || !form.description.trim() || !form.category.trim() || !form.gender || !Number.isFinite(price) || price <= 0) {
+      setError('Enter a name, description, category, gender, and a price greater than zero.')
       return
     }
     if (!Number.isInteger(stock) || stock < 0) {
@@ -237,6 +239,7 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
     setError('')
     setMessage('')
     const uploadedPaths: string[] = []
+    let savingStage: 'photo upload' | 'product record' = 'photo upload'
     try {
       for (let index = 0; index < newImages.length; index += 1) {
         setUploadProgress(`Uploading photo ${index + 1} of ${newImages.length}…`)
@@ -251,11 +254,13 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
         description: form.description.trim(),
         price,
         category: form.category.trim(),
+        gender: form.gender as ProductInput['gender'],
         available_sizes: sizes,
         stock_quantity: stock,
         image_urls: orderedImages,
         is_published: form.published,
       }
+      savingStage = 'product record'
       await saveProduct(payload, editingId ?? undefined)
       const removedImages = editingId
         ? products.find((product) => product.id === editingId)?.image_urls.filter((path) => !currentImages.includes(path)) ?? []
@@ -285,7 +290,10 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
           console.error('Could not clean up photos uploaded during the failed save.', cleanupError)
         }
       }
-      setError(saveError instanceof Error ? saveError.message : 'The product could not be saved. Please try again.')
+      const detail = saveError instanceof Error ? saveError.message : 'Please try again.'
+      setError(detail.toLowerCase().includes('row-level security')
+        ? `Supabase rejected the ${savingStage}. Run the storefront access policies migration in the Supabase SQL Editor, then try again.`
+        : `Could not save the ${savingStage}: ${detail}`)
     } finally {
       setSaving(false)
       setUploadProgress('')
@@ -372,6 +380,14 @@ function ProductStudio({ session, onSignOut }: { session: Session; onSignOut: ()
               <label>PIECE NAME<input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. The Sunday Kaftan" /></label>
               <div className="form-row product-meta-row">
                 <label>CATEGORY<input required maxLength={80} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder="Made to measure" /></label>
+                <label>FOR
+                  <select required value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}>
+                    <option value="">Choose</option>
+                    <option value="Men">Men</option>
+                    <option value="Women">Women</option>
+                    <option value="Unisex">Unisex</option>
+                  </select>
+                </label>
                 <label>PRICE (GHS)<input required type="number" min="0.01" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="850" /></label>
                 <label>STOCK QUANTITY<input required type="number" min="0" step="1" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} /></label>
               </div>

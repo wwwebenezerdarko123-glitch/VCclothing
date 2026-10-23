@@ -29,13 +29,13 @@ The repository includes a Vercel rewrite that serves the Vite app for direct rou
 
 ## Supabase setup
 
-1. Review and run [`supabase/migrations/20261023000100_storefront_access_policies.sql`](./supabase/migrations/20261023000100_storefront_access_policies.sql) in the Supabase SQL Editor. It reuses the existing `products`, `admin_users`, and `is_store_admin()` objects. It does not recreate tables or change product data.
-2. Confirm `is_store_admin()` returns `true` only for authenticated users whose `auth.uid()` is in `public.admin_users`. It must safely read the protected allowlist (typically `SECURITY DEFINER` with a fixed `search_path`) and must not expose allowlist rows. Review its implementation before relying on it.
+1. Review and run [`supabase/migrations/20261023000100_storefront_access_policies.sql`](./supabase/migrations/20261023000100_storefront_access_policies.sql) in the Supabase SQL Editor. It reuses the existing `products`, `admin_users`, and `is_store_admin()` objects, adds a `gender` column (existing products default to `Unisex`), and applies product and image Storage access policies. It does not recreate tables or alter other product data.
+2. The migration installs `is_store_admin()` as a `SECURITY DEFINER` function with an empty fixed `search_path`. It checks only whether the signed-in user's `auth.uid()` exists in `public.admin_users.user_id`; it does not expose allowlist rows to the browser.
 3. Create the administrator account in Supabase Authentication. Then, after confirming the new account's Auth user ID, add only that ID to the existing `admin_users` allowlist using the schema's actual constraints. The website has no public registration flow and never grants admin access automatically.
 4. Confirm the Storage bucket is named exactly `images`. The safer default is a **private** bucket: the migration allows visitors to request signed image URLs only for photos belonging to published products. If the bucket is already public, set `VITE_SUPABASE_IMAGES_PUBLIC=true` to use public URLs; public buckets make every object in that bucket readable to anyone, including unpublished photos. In either case, do not make uploads, updates, or deletes public.
 5. In production hosting settings, add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` values. Redeploy after changing them.
 
-The SQL migration adds product and Storage RLS policies, restrictive guard policies that cap older permissive policies, removes direct client access to `admin_users`, and adds product changes to Realtime when that publication exists. Review the migration and current project policies before running it. Do not disable RLS.
+The SQL migration adds the `gender` column, installs the allowlist-check function, applies product and Storage RLS policies, restrictive guard policies that cap older permissive policies, removes direct client access to `admin_users`, and adds product changes to Realtime when that publication exists. Review the migration and current project policies before running it. Do not disable RLS.
 
 ## Manage products
 
@@ -43,7 +43,7 @@ Visit `/admin` and sign in with the administrator's Supabase Auth email and pass
 
 The dashboard supports creating and editing products, deleting with confirmation, publishing/unpublishing, stock and size updates, multiple photo previews, primary-image selection, and Storage uploads to `images`. Photo uploads are limited to JPG, PNG, or WebP and 10 MB each. Product records store Storage paths in `image_urls`, not base64 image data. Private-bucket image links are signed and expire after one hour. Public product changes refresh through Realtime and a periodic refresh.
 
-The catalog uses the existing database fields: `name`, `description`, `price`, `category`, `available_sizes`, `stock_quantity`, `image_urls`, `is_published`, and timestamps. No additional columns are required. The existing storefront gender filter remains; products from this schema are treated as unisex because the table has no gender field.
+The catalog uses the database fields `name`, `description`, `price`, `category`, `gender`, `available_sizes`, `stock_quantity`, `image_urls`, `is_published`, and timestamps. The gender field supports `Men`, `Women`, and `Unisex`; existing products default to `Unisex`.
 
 The welcome-screen visitor hellos remain in the visitor's local browser and are not collected in Supabase. WhatsApp/email order enquiries remain customer-composed messages; this website does not process payments.
 

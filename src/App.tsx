@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Check,
@@ -176,7 +177,7 @@ async function mapStoreProduct(product: StoreProduct): Promise<Product> {
     id: product.id,
     name: product.name,
     category: product.category,
-    gender: 'Unisex',
+    gender: product.gender,
     price: product.price,
     description: product.description,
     image: images[0] ?? '',
@@ -338,11 +339,13 @@ function ProductCard({
   product,
   index,
   onAdd,
+  onOpen,
   onSizingHelp,
 }: {
   product: Product
   index: number
   onAdd: (product: Product) => void
+  onOpen: (product: Product) => void
   onSizingHelp: (product: Product) => void
 }) {
   const [showAlternate, setShowAlternate] = useState(false)
@@ -351,12 +354,14 @@ function ProductCard({
   return (
     <article className="product-card" style={{ animationDelay: `${index * 100}ms` }}>
       <div className={`product-image-wrap${showAlternate ? ' show-alternate' : ''}`}>
-        {product.image
-          ? <img className="product-image-front" src={product.image} alt={`${product.name}, front view`} loading="lazy" />
-          : <span className="product-image-placeholder">A new piece, made for you</span>}
-        {product.imageBack && (
-          <img className="product-image-back" src={product.imageBack} alt={`${product.name}, back or alternate view`} loading="lazy" />
-        )}
+        <button className="product-image-open" type="button" onClick={() => onOpen(product)} aria-label={`View ${product.name} details`}>
+          {product.image
+            ? <img className="product-image-front" src={product.image} alt="" loading="lazy" />
+            : <span className="product-image-placeholder">A new piece, made for you</span>}
+          {product.imageBack && (
+            <img className="product-image-back" src={product.imageBack} alt="" loading="lazy" />
+          )}
+        </button>
         {hasAlternate && (
           <button
             className="alternate-image-toggle"
@@ -377,7 +382,10 @@ function ProductCard({
         </button>
       </div>
       <div className="product-info">
-        <div><h3>{product.name}</h3><span>{product.gender} · {product.category}</span></div>
+        <div>
+          <button className="product-title-trigger" type="button" onClick={() => onOpen(product)}>{product.name}</button>
+          <span>{product.gender} · {product.category}</span>
+        </div>
         <strong>{formatPrice(product.price)}</strong>
       </div>
       <p className="product-description">{product.description}</p>
@@ -388,6 +396,67 @@ function ProductCard({
         <Ruler size={13} /> Need help with sizing?
       </button>
     </article>
+  )
+}
+
+function ProductDetail({ product, onClose, onAdd, onSizingHelp }: {
+  product: Product
+  onClose: () => void
+  onAdd: () => void
+  onSizingHelp: () => void
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  return (
+    <div className="product-detail-backdrop" onClick={onClose}>
+      <main className="product-detail-page" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
+        <header className="product-detail-header">
+          <span className="eyebrow">A LITTLE SOMETHING MADE FOR YOU</span>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close product details"><X size={20} /></button>
+        </header>
+        <div className="product-detail-content">
+          <div className="product-detail-gallery">
+            <figure className="product-detail-visual">
+              {product.image
+                ? <img className="product-detail-photo" src={product.image} alt={product.name} />
+                : <span className="product-image-placeholder">A new piece, made for you</span>}
+              {product.imageBack && <img className="product-detail-photo product-detail-photo-back" src={product.imageBack} alt={`${product.name}, alternate view`} />}
+              <span className="product-detail-orbit" aria-hidden="true" />
+            </figure>
+            {product.imageBack && <p className="product-detail-hint">A CLOSER LOOK <span>✳</span> FRONT &amp; ALTERNATE VIEW</p>}
+          </div>
+          <section className="product-detail-copy">
+            <span className="eyebrow">{product.gender} · {product.category}</span>
+            <h1 id="product-detail-title">{product.name}</h1>
+            <strong className="product-detail-price">{formatPrice(product.price)}</strong>
+            <p className="product-detail-description">{product.description}</p>
+            {product.availableSizes && product.availableSizes.length > 0 && (
+              <div className="product-detail-sizes"><span>AVAILABLE SIZES</span><p>{product.availableSizes.join(' · ')}</p></div>
+            )}
+            <p className="product-detail-stock">{product.stockQuantity === 0 ? 'Currently unavailable' : 'Made with care, ready for your next moment.'}</p>
+            <button className="button button-dark product-detail-add" type="button" onClick={onAdd} disabled={product.stockQuantity === 0}>
+              {product.stockQuantity === 0 ? 'Currently unavailable' : <>Add to your bag <ShoppingBag size={17} /></>}
+            </button>
+            <button className="sizing-help-link product-detail-sizing" type="button" onClick={onSizingHelp}>
+              <Ruler size={13} /> Need help with sizing?
+            </button>
+            <p className="product-detail-note">Your order enquiry is sent to the VC studio for availability and delivery confirmation.</p>
+          </section>
+        </div>
+        <button className="product-detail-back" type="button" onClick={onClose}><ArrowLeft size={15} /> Back to the collection</button>
+      </main>
+    </div>
   )
 }
 
@@ -449,11 +518,13 @@ function Storefront() {
   const [buyerEmail, setBuyerEmail] = useState('')
   const [orderNotice, setOrderNotice] = useState('')
   const [cartOpen, setCartOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [welcomeOpen, setWelcomeOpen] = useState(
     () => !localStorage.getItem(welcomeStorageKey),
   )
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sizingProduct, setSizingProduct] = useState<Product | null>(null)
+  const closeProductDetails = useCallback(() => setSelectedProduct(null), [])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -689,6 +760,7 @@ function Storefront() {
                   product={product}
                   index={index}
                   onAdd={addToBag}
+                  onOpen={setSelectedProduct}
                   onSizingHelp={setSizingProduct}
                 />
               ))}
@@ -805,6 +877,20 @@ function Storefront() {
         </div>
       )}
 
+      {selectedProduct && (
+        <ProductDetail
+          product={selectedProduct}
+          onClose={closeProductDetails}
+          onAdd={() => {
+            closeProductDetails()
+            addToBag(selectedProduct)
+          }}
+          onSizingHelp={() => {
+            closeProductDetails()
+            setSizingProduct(selectedProduct)
+          }}
+        />
+      )}
       {welcomeOpen && <WelcomeOverlay onClose={() => setWelcomeOpen(false)} />}
       {sizingProduct && <SizingGuide product={sizingProduct} onClose={() => setSizingProduct(null)} />}
     </div>
