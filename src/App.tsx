@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Check,
   Heart,
+  LoaderCircle,
   Menu,
   Minus,
   Plus,
@@ -203,19 +204,25 @@ function Brand({ light = false }: { light?: boolean }) {
 function WelcomeOverlay({ onClose }: { onClose: () => void }) {
   const [place, setPlace] = useState('')
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [offerExpanded, setOfferExpanded] = useState(false)
   const [offerName, setOfferName] = useState('')
   const [offerEmail, setOfferEmail] = useState('')
   const [offerError, setOfferError] = useState('')
   const [offerStatus, setOfferStatus] = useState('')
 
-  function submitWelcome(event: FormEvent<HTMLFormElement>) {
+  async function submitWelcome(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (isSubmitting) return
+
     const answer = place.trim()
     if (!answer) {
       setError('Tell us where you are joining us from.')
       return
     }
+
+    setIsSubmitting(true)
+    await new Promise((resolve) => window.setTimeout(resolve, 3000 + Math.random() * 2000))
 
     try {
       const notes = readStored<WelcomeNote[]>(noteStorageKey, [])
@@ -228,6 +235,7 @@ function WelcomeOverlay({ onClose }: { onClose: () => void }) {
     } catch (storageError) {
       console.error('Could not save your welcome response.', storageError)
       setError('We could not save that just now. Please try again.')
+      setIsSubmitting(false)
     }
   }
 
@@ -251,7 +259,7 @@ function WelcomeOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div className="welcome-backdrop" role="presentation">
       <section className="welcome-card" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
-        <button className="icon-button welcome-dismiss" onClick={onClose} aria-label="Close welcome">
+        <button className="icon-button welcome-dismiss" onClick={onClose} disabled={isSubmitting} aria-label="Close welcome">
           <X size={19} />
         </button>
         <div className="welcome-brand">
@@ -264,11 +272,12 @@ function WelcomeOverlay({ onClose }: { onClose: () => void }) {
         <p className="welcome-copy">
           Beautiful clothes feel even better when you know where they come from. Where are you joining us from?
         </p>
-        <form onSubmit={submitWelcome} className="welcome-form">
+        <form onSubmit={submitWelcome} className="welcome-form" aria-busy={isSubmitting}>
           <label className="sr-only" htmlFor="visitor-place">Your city or country</label>
           <input
             id="visitor-place"
             autoFocus
+            disabled={isSubmitting}
             value={place}
             onChange={(event) => {
               setPlace(event.target.value)
@@ -277,7 +286,10 @@ function WelcomeOverlay({ onClose }: { onClose: () => void }) {
             placeholder="Your city, country, anywhere…"
             maxLength={100}
           />
-          <button className="button button-dark" type="submit">Come on in <ArrowRight size={16} /></button>
+          <button className="button button-dark" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? <><LoaderCircle className="spin" size={16} /> Getting your welcome ready…</> : <>Come on in <ArrowRight size={16} /></>}
+          </button>
+          {isSubmitting && <p className="welcome-loading" role="status">A little moment while we welcome you in…</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
         <span className="welcome-footnote">One small hello, just for our studio.</span>

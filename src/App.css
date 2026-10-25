@@ -260,6 +260,8 @@ img { display: block; max-width: 100%; }
 .welcome-form input { min-width: 0; flex: 1; height: 47px; padding: 0 13px; border: 1px solid #d2d0c5; outline: 0; background: #fdfcf8; color: #282a23; font-size: 10px; }
 .welcome-form input:focus { border-color: #7c8062; }
 .welcome-form .button { min-width: 140px; }
+.welcome-form .button:disabled, .welcome-dismiss:disabled { opacity: .65; cursor: wait; transform: none; }
+.welcome-loading { width: 100%; margin: 2px 0 0; color: #707066; font-size: 10px; }
 .form-error { width: 100%; margin: 3px 0 0; color: #a53c35; font-size: 10px; }
 .welcome-footnote { display: block; margin-top: 18px; color: #959488; font-size: 9px; }
 .welcome-offer { position: relative; overflow: hidden; margin-top: 29px; padding: 22px; border: 1px solid #d9d6c8; background: linear-gradient(140deg, #fffdf7 0%, #f1f3eb 52%, #f7eee8 100%); }
